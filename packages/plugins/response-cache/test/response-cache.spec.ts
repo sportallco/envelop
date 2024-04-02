@@ -3363,6 +3363,91 @@ describe('useResponseCache', () => {
       expect(spy).toHaveBeenCalledTimes(2);
     });
 
+    ['query', 'field', 'subfield'].forEach(type => {
+      it(`should return PRIVATE scope in buildResponseCacheKey when putting @cacheControl scope on ${type}`, async () => {
+        jest.useFakeTimers();
+        const spy = jest.fn(() => [
+          {
+            id: 1,
+            name: 'User 1',
+            comments: [
+              {
+                id: 1,
+                text: 'Comment 1 of User 1',
+              },
+            ],
+          },
+          {
+            id: 2,
+            name: 'User 2',
+            comments: [
+              {
+                id: 2,
+                text: 'Comment 2 of User 2',
+              },
+            ],
+          },
+        ]);
+
+        const schema = makeExecutableSchema({
+          typeDefs: /* GraphQL */ `
+            ${cacheControlDirective}
+            type Query {
+              users: [User!]! ${type === 'query' ? '@cacheControl(scope: PRIVATE)' : ''}
+            }
+
+            type User ${type === 'field' ? '@cacheControl(scope: PRIVATE)' : ''} {
+              id: ID!
+              name: String! ${type === 'subfield' ? '@cacheControl(scope: PRIVATE)' : ''} 
+              comments: [Comment!]!
+              recentComment: Comment
+            }
+
+            type Comment {
+              id: ID!
+              text: String!
+            }
+          `,
+          resolvers: {
+            Query: {
+              users: spy,
+            },
+          },
+        });
+
+        const testInstance = createTestkit(
+          [
+            useResponseCache({
+              session: () => null,
+              buildResponseCacheKey: ({ getScope, ...rest }) => {
+                expect(getScope()).toEqual('PRIVATE');
+                return defaultBuildResponseCacheKey(rest);
+              },
+              ttl: 200,
+            }),
+          ],
+          schema,
+        );
+
+        const query = /* GraphQL */ `
+          query test {
+            users {
+              id
+              name
+              comments {
+                id
+                text
+              }
+            }
+          }
+        `;
+
+        await testInstance.execute(query);
+
+        expect(spy).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('should cache correctly for session with ttl being a valid number', async () => {
       jest.useFakeTimers();
       const spy = jest.fn(() => [
